@@ -1,0 +1,269 @@
+/*! Shabbat Guard v1.3.0 (UMD) | Auto-run overlay for Shabbat | MIT */
+;((root, factory) => {
+  if (typeof define === "function" && define.amd) {
+    define(factory)
+  } else if (typeof module === "object" && module.exports) {
+    module.exports = factory()
+  } else {
+    root.ShabbatGuard = factory()
+  }
+})(typeof self !== "undefined" ? self : this, () => {
+  function fmt(locale, tz, d) {
+    try {
+      return new Intl.DateTimeFormat(locale || "he-IL", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: tz,
+      }).format(d)
+    } catch (e) {
+      return d.toTimeString().slice(0, 5)
+    }
+  }
+  function fetchWithTimeout(u, ms) {
+    var ctrl = new AbortController()
+    var t = setTimeout(() => {
+      ctrl.abort()
+    }, ms || 8000)
+    return fetch(u, { signal: ctrl.signal }).finally(() => {
+      clearTimeout(t)
+    })
+  }
+  function geolocateOnce(ms) {
+    return new Promise((res, rej) => {
+      if (!navigator.geolocation) return rej(new Error("geolocation_unavailable"))
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          res({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+            source: "geolocation",
+          })
+        },
+        rej,
+        { enableHighAccuracy: false, timeout: ms || 6000, maximumAge: 5 * 60 * 1000 },
+      )
+    })
+  }
+  function ipapiLocate() {
+    return fetchWithTimeout("https://ipapi.co/json/", 7000)
+      .then((r) => {
+        if (!r.ok) throw new Error("ipapi_failed")
+        return r.json()
+      })
+      .then((j) => ({ latitude: j.latitude, longitude: j.longitude, timezone: j.timezone, source: "ipapi" }))
+  }
+  function resolveHavdalah(minhag, custom) {
+    if (minhag === "custom") return typeof custom === "number" ? custom : 40
+    var map = { default: 40, chabad: 50, jerusalem40: 40 }
+    return map[minhag] != null ? map[minhag] : 40
+  }
+  function fetchShabbatTimes(lat, lon, tzid, b) {
+    var u =
+      "https://www.hebcal.com/shabbat?cfg=json&latitude=" +
+      lat +
+      "&longitude=" +
+      lon +
+      "&tzid=" +
+      encodeURIComponent(tzid) +
+      "&b=" +
+      b +
+      "&M=on"
+    return fetchWithTimeout(u, 9000)
+      .then((r) => {
+        if (!r.ok) throw new Error("hebcal_failed")
+        return r.json()
+      })
+      .then((j) => {
+        var it = j.items || []
+        var cin = it.find((i) => i.category === "candles")
+        var out = it.find((i) => i.category === "havdalah")
+        if (!cin || !out) throw new Error("times_not_found")
+        return { in: new Date(cin.date), out: new Date(out.date) }
+      })
+  }
+
+  function defaultOverlayStyle(darkBG, color) {
+    var d = document.createElement("div")
+    d.style.cssText = [
+      "position:fixed",
+      "inset:0",
+      "z-index:2147483647",
+      "display:flex",
+      "flex-direction:column",
+      "justify-content:center",
+      "align-items:center",
+      "text-align:center",
+      "padding:24px",
+      "background:" + (darkBG || "#ffffff"),
+      "color:" + (color || "#111111"),
+      "font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans','Apple Color Emoji','Noto Color Emoji',sans-serif",
+    ].join(";")
+    return d
+  }
+
+  function showOverlay(cfg, tzid, outDate) {
+    if (document.getElementById(cfg.overlayId)) return
+    var d = defaultOverlayStyle(cfg.bgColor, cfg.textColor)
+    d.id = cfg.overlayId
+    d.setAttribute("role", "dialog")
+    d.setAttribute("aria-modal", "true")
+
+    // Build card
+    var card = document.createElement("div")
+    card.style.maxWidth = "540px"
+    card.style.width = "100%"
+    card.style.borderRadius = "20px"
+    card.style.padding = "24px"
+    if (cfg.customDesign) {
+      card.style.background = cfg.cardBg || "#f7f7f7"
+      card.style.boxShadow = "0 12px 40px -16px rgba(0,0,0,.25)"
+      if (cfg.accentColor) card.style.border = "1px solid " + cfg.accentColor
+      else card.style.border = "1px solid rgba(0,0,0,.08)"
+    }
+
+    if (cfg.image) {
+      var img = document.createElement("img")
+      img.src = cfg.image
+      img.alt = ""
+      img.style.maxWidth = "120px"
+      img.style.borderRadius = "16px"
+      img.style.display = "block"
+      img.style.margin = "0 auto 12px"
+      card.appendChild(img)
+    }
+
+    var h = document.createElement("h1")
+    h.id = "shabbat-guard-title"
+    h.style.margin = "0 0 8px"
+    h.style.fontSize = "28px"
+    h.style.fontWeight = "800"
+    h.style.letterSpacing = ".3px"
+    if (cfg.accentColor) h.style.textShadow = "0 0 0 " + cfg.accentColor
+    h.textContent = cfg.title || "האתר אינו פעיל בשבת"
+    card.appendChild(h)
+
+    var p = document.createElement("p")
+    p.style.margin = "0"
+    p.style.fontSize = "18px"
+    p.style.opacity = ".9"
+    p.textContent = cfg.message || "צאת השבת: " + fmt(cfg.locale, tzid, outDate)
+    card.appendChild(p)
+
+    d.appendChild(card)
+    document.body.appendChild(d)
+    document.documentElement.style.overflow = "hidden"
+    document.body.style.overflow = "hidden"
+  }
+
+  function getCache(key) {
+    try {
+      var raw = localStorage.getItem(key)
+      return raw ? JSON.parse(raw) : null
+    } catch (e) {
+      return null
+    }
+  }
+  function putCache(key, val) {
+    try {
+      localStorage.setItem(key, JSON.stringify(val))
+    } catch (e) {}
+  }
+
+  function scheduleNext(outDate, rerun) {
+    var ms = Math.max(5000, Math.min(outDate.getTime() - Date.now(), 60 * 60 * 1000))
+    setTimeout(rerun, ms)
+  }
+
+  function parseParamsFromCurrentScript() {
+    var s =
+      document.currentScript ||
+      (() => {
+        var scripts = document.getElementsByTagName("script")
+        return scripts[scripts.length - 1]
+      })()
+    var url = s && s.src ? new URL(s.src) : new URL(window.location.href)
+    var params = url.searchParams
+    return {
+      location: params.get("location") || "api",
+      onDeny: params.get("onDeny") || "api",
+      minhag: params.get("minhag") || "default",
+      havdalah: Number(params.get("havdalah") || "40"),
+      // custom design
+      customDesign: params.get("customDesign") === "true",
+      title: params.get("title") || null,
+      message: params.get("message") || null,
+      image: params.get("image") || null,
+      bgColor: params.get("bgColor") || null,
+      textColor: params.get("textColor") || null,
+      cardBg: params.get("cardBg") || null,
+      accentColor: params.get("accentColor") || null,
+      locale: params.get("locale") || "he-IL",
+      overlayId: "shabbat-guard-overlay",
+      cacheKey: "shabbat-guard-cache-v3",
+    }
+  }
+
+  function resolveLocation(cfg) {
+    if (cfg.location === "none") return Promise.resolve(null)
+    if (cfg.location === "api") return ipapiLocate()
+    if (cfg.location === "prompt-only") {
+      return geolocateOnce().catch(() => (cfg.onDeny === "api" ? ipapiLocate() : null))
+    }
+    if (cfg.location === "prompt-then-api") {
+      return geolocateOnce().catch(() => ipapiLocate())
+    }
+    return ipapiLocate()
+  }
+
+  function runWithCfg(cfg) {
+    return resolveLocation(cfg)
+      .then((loc) => {
+        if (!loc) return // no location => no block
+        var cacheKey =
+          cfg.cacheKey +
+          ":" +
+          loc.timezone +
+          ":" +
+          Math.round(loc.latitude * 100) +
+          ":" +
+          Math.round(loc.longitude * 100)
+        var cached = getCache(cacheKey)
+        var now = Date.now()
+        if (cached && now - cached.ts < 24 * 60 * 60 * 1000) {
+          if (now >= cached.in && now < cached.out) {
+            showOverlay(cfg, loc.timezone, new Date(cached.out))
+          }
+          scheduleNext(new Date(cached.out), () => {
+            runWithCfg(cfg)
+          })
+          return
+        }
+        var b = resolveHavdalah(cfg.minhag, cfg.havdalah)
+        return fetchShabbatTimes(loc.latitude, loc.longitude, loc.timezone, b).then((times) => {
+          putCache(cacheKey, { ts: now, in: times.in.getTime(), out: times.out.getTime() })
+          if (now >= times.in.getTime() && now < times.out.getTime()) showOverlay(cfg, loc.timezone, times.out)
+          scheduleNext(times.out, () => {
+            runWithCfg(cfg)
+          })
+        })
+      })
+      .catch((e) => {
+        /* silent */
+      })
+  }
+
+  function autoRun() {
+    var cfg = parseParamsFromCurrentScript()
+    runWithCfg(cfg)
+  }
+
+  // Auto run immediately
+  try {
+    autoRun()
+  } catch (e) {}
+
+  // public API (minimal)
+  return { run: autoRun, _internals: { parseParamsFromCurrentScript, runWithCfg, showOverlay } }
+})

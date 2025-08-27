@@ -1,74 +1,99 @@
-# Shabbat kodesh Script
+# 🕯️ Shabbat Guard
 
-This is a JavaScript and C# script that can be used to ensure that a website observes Shabbat, a Jewish day of rest, according to Jewish tradition. The scripts fetch the user's location data using the IPAPI service, and then retrieve the relevant Shabbat times from the Hebcal API. The scripts then compare the start and end times of Shabbat to the current time to determine whether it is currently Shabbat.
+**Shabbat Guard** is a lightweight, open-source JavaScript library that allows you to automatically **disable your website during Shabbat** (Friday sunset → Saturday nightfall).  
+It calculates Shabbat times based on the visitor’s location and custom minhagim (traditions) using the [Hebcal API](https://www.hebcal.com).
 
-# JavaScript Version
-## Usage
+> Originally published as [`shabat-kodesh`](https://github.com/liad07/shabat-kodesh), the project has been renamed to **shabbat-guard** for clearer branding and consistency with the domain [shabbatguard.com](https://shabbatguard.com).
 
-To use the script, simply include it in the <head> section of your website:
+---
+
+## ✨ What does it do?
+- Detects if it is currently Shabbat based on visitor location (Geolocation or IP fallback).  
+- Retrieves candle-lighting and havdalah times from Hebcal.  
+- Displays an overlay blocking the site with a “closed for Shabbat” message.  
+- Supports different minhagim: **default (≈40 min)**, **Chabad (≈50 min)**, **Jerusalem 40**, or **custom minutes**.  
+- **New in v1.3:** full custom design — colors, title, message, and image via query parameters.
+
+---
+
+## 🌐 Website / Builder
+The official landing page: [https://shabbatguard.com](https://shabbatguard.com)
+
+On the site, you can **generate a ready-to-use `<script>` tag** by selecting:
+- Location detection mode (Geolocation / IP / both / none)  
+- Minhag (Default / Chabad / Jerusalem 40 / Custom minutes)  
+- Optional **custom design**: background, text colors, custom title/message, and an image.
+
+This makes integration as easy as copy-paste — no coding required.
+
+---
+
+## 🚀 Quick Install from CDN
+Paste this in your `<head>` or before `</body>`:
 
 ```html
-<head>
-  <script src="https://liad07.github.io/shabat-kodesh/main.js"></script>
-</head>
+<script src="https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=api&minhag=default" defer></script>
 ```
 
-The script will automatically run every minute to check whether it is currently Shabbat. If it is, a message will be displayed in Hebrew to inform the user that the website is inaccessible during this time.
+---
 
-## Dependencies
+## ⚙️ Parameters
+- `location`: `api` | `prompt-then-api` | `prompt-only` | `none`  
+- `onDeny`: `api` | `none` (only relevant for `prompt-only`)  
+- `minhag`: `default` | `chabad` | `jerusalem40` | `custom`  
+- `havdalah`: minutes (if `minhag=custom`)  
 
-This script relies on external APIs to retrieve location and Shabbat information. Specifically, it uses the following APIs:
+### Custom Design (v1.3)
+- `customDesign=true`  
+- `title`, `message`, `image`  
+- `bgColor`, `textColor`, `cardBg`, `accentColor`
 
-- IPAPI (https://ipapi.co) to retrieve the user's location data
-- Hebcal (https://www.hebcal.com) to retrieve the relevant Shabbat times
-## Contributing
-
-If you have suggestions for how to improve this script, please open an issue or submit a pull request. Contributions of all kinds are welcome and appreciated!
-
-# C# Version
-## Usage
-The api class now in file on this git called api.cs pls include in same directory
-  
-To use the script, simply include it in your C# ASP.NET project:
-```csharp
-        protected async void Page_Load(object sender, EventArgs e)
-        {
-            if((int)DateTime.Now.DayOfWeek == 5 || (int)DateTime.Now.DayOfWeek == 6)
-            {
-                api api = new api();
-                string content = await api.GetContent("http://ip-api.com/json/");
-                JObject responseObj = JObject.Parse(content);
-                string city = (string)responseObj["city"];
-                string hebcal = await api.GetContent("https://www.hebcal.com/shabbat?cfg=json&city=" + city + "&b=40&M=on");
-                JObject hebcal2 = JObject.Parse(hebcal);
-
-                JArray items = (JArray)hebcal2["items"];
-                var chabatIn = DateTime.Parse(hebcal2["items"][0]["date"].ToString());
-                var chabatOut = DateTime.Parse(hebcal2["items"][items.Count() - 1]["date"].ToString());
-
-                if (DateTime.Now >= chabatIn && DateTime.Now < chabatOut && (int)DateTime.Now.DayOfWeek == 5 || (int)DateTime.Now.DayOfWeek == 6)
-                {
-                    Response.Clear();
-                    Response.StatusCode = 702;
-                    Response.StatusDescription = "שבת היום";
-                    Response.Write("<div style=\"display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; height: 100vh; background-color: #f2f2f2;\">\n" +
-                                   "  <img src=\"https://parashat.co.il/wp-content/uploads/2021/01/17.png\" alt=\"shabat shalom\" style=\"width: 50%; height: auto;\">\n" +
-                                   "  <p style=\"margin-top: 10px; font-size: 30px; text-align: center; color: #4d4d4d;\">האתר אינו פעיל בשבת, נשמח לחזור לשרותכם במוצאי שבת</p>\n" +
-                                   "  <p style=\"margin-top: 10px; font-size: 30px; text-align: center; color: #4d4d4d;\">צאת השבת: " + chabatOut + "</p>\n" +
-                                   "</div>");
-
-                    Response.End();
-
-                    HttpContext.Current.ApplicationInstance.CompleteRequest();
-                }
-            }
-            
-        }
+Example:
+```html
+<script src="https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=api&minhag=custom&havdalah=45&customDesign=true&title=Site%20Closed%20for%20Shabbat&message=We%27ll%20be%20back%20after%20Shabbat&bgColor=%231a1a1a&textColor=%23ffffff&cardBg=%232a2a2a&accentColor=%23d4af37" defer></script>
 ```
-## Dependencies
-This script relies on external APIs to retrieve location and Shabbat information. Specifically, it uses the following APIs:
 
-- IPAPI (https://ip-api.co) to retrieve the user's location data
-- Hebcal (https://www.hebcal.com) to retrieve the relevant Shabbat times
-## Contributing
-If you have suggestions for how to improve this script, please open an issue or submit a pull request. Contributions of all kinds are welcome and appreciated!
+---
+
+## 🛠️ ESM Module
+For modern projects:
+```html
+<script type="module" src="https://cdn.shabbatguard.com/shabbat-guard.esm.min.js"></script>
+```
+
+Or import directly:
+```js
+import { initShabbatGuard } from 'https://cdn.shabbatguard.com/shabbat-guard.esm.min.js';
+
+initShabbatGuard("https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=api&minhag=default");
+```
+
+---
+
+## 📖 Usage Examples
+1. **Accurate (Geolocation, fallback to IP):**
+```html
+<script src="https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=prompt-then-api&minhag=default" defer></script>
+```
+2. **Geolocation only (if denied → no block):**
+```html
+<script src="https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=prompt-only&onDeny=none&minhag=default" defer></script>
+```
+3. **IP only, Chabad minhag (≈50 min):**
+```html
+<script src="https://cdn.shabbatguard.com/shabbat-guard.umd.min.js?location=api&minhag=chabad" defer></script>
+```
+4. **IP only, Custom 45 minutes + custom design:**
+*(see example above)*
+
+---
+
+## 🤝 Contributing
+- Issues and PRs are welcome.  
+- Please note: this project provides a **technical tool** — not halachic rulings. Site owners should consult their Rabbi for practical guidance.
+
+---
+
+## 📜 License
+MIT © 2025  
+Released as open source to help site owners preserve the sanctity of Shabbat online.
